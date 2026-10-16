@@ -1,0 +1,22 @@
+cut,pixel_size,time,year,fishing_activity_only,file,n_rows,csv_mb
+"0.01 deg, monthly",0.01,month,,FALSE,,262000000,17000
+"0.05 deg, monthly",0.05,month,,FALSE,,42800000,2760
+"0.10 deg, monthly",0.1,month,,FALSE,,16100000,1010
+"0.01 deg, yearly",0.01,year,,FALSE,,108000000,6360
+"0.05 deg, yearly",0.05,year,,FALSE,,10300000,613
+"0.10 deg, yearly",0.1,year,,FALSE,,3540000,204
+"0.01 deg, all years summed",0.01,all,,FALSE,,24600000,1350
+"0.05 deg, all years summed",0.05,all,,FALSE,ais_effort_by_pixel_0p05deg_all_years.csv.gz,2010000,113
+"0.10 deg, all years summed",0.1,all,,FALSE,,665000,36.3
+"fishing activity only, 0.01 deg, monthly",0.01,month,,TRUE,,3510000,229
+"fishing activity only, 0.05 deg, monthly",0.05,month,,TRUE,,611000,39.7
+"fishing activity only, 0.10 deg, monthly",0.1,month,,TRUE,,297000,18.6
+"fishing activity only, 0.01 deg, yearly",0.01,year,,TRUE,,2290000,136
+"fishing activity only, 0.05 deg, yearly",0.05,year,,TRUE,ais_fishing_activity_by_pixel_0p05deg_yearly.csv.gz,340000,20.2
+"fishing activity only, 0.10 deg, yearly",0.1,year,,TRUE,,151000,8.71
+"fishing activity only, 0.01 deg, all years summed",0.01,all,,TRUE,,974000,53.9
+"fishing activity only, 0.05 deg, all years summed",0.05,all,,TRUE,,123000,6.88
+"fishing activity only, 0.10 deg, all years summed",0.1,all,,TRUE,,48200,2.59
+"2025 only, 0.01 deg, monthly",0.01,month,2025,FALSE,,30900000,2010
+"2025 only, 0.05 deg, monthly",0.05,month,2025,FALSE,,4260000,275
+"2025 only, 0.10 deg, monthly",0.1,month,2025,FALSE,,1530000,95.6

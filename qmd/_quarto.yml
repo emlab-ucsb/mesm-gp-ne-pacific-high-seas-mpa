@@ -1,0 +1,33 @@
+project:
+  type: website
+  # Rendered into docs/ at the repo root, which is committed: GitHub Pages
+  # serves main/docs as the site.
+  output-dir: ../docs
+  render:
+    - index.qmd
+
+website:
+  title: "NE Pacific vessel activity"
+  site-url: https://emlab-ucsb.github.io/mesm-gp-ne-pacific-high-seas-mpa/
+  repo-url: https://github.com/emlab-ucsb/mesm-gp-ne-pacific-high-seas-mpa
+  navbar:
+    right:
+      - icon: github
+        href: https://github.com/emlab-ucsb/mesm-gp-ne-pacific-high-seas-mpa
+
+format:
+  html:
+    theme: cosmo
+    toc: true
+    toc-depth: 2
+    code-fold: true
+    code-tools: true
+    fig-width: 9
+    fig-height: 6
+    fig-dpi: 150
+    embed-resources: true
+
+execute:
+  echo: true
+  warning: false
+  message: false

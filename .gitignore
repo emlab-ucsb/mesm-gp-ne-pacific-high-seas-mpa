@@ -40,11 +40,27 @@ vignettes/*.pdf
 .Renviron
 .env
 
-# pkgdown site
-docs/
+# (docs/ is not ignored: it holds the rendered site, which GitHub Pages serves)
 
 # translation temp files
 po/*~
 
 # RStudio Connect folder
 rsconnect/
+
+# targets store (BQ table metadata; rebuildable)
+_targets/
+_targets.yaml
+# renv project library (restored from renv.lock)
+renv/library/
+renv/staging/
+renv/local/
+renv/sandbox/
+# macOS
+.DS_Store
+# Quarto intermediates (the rendered site itself goes to docs/, which is
+# committed for GitHub Pages)
+qmd/_site/
+qmd/.quarto/
+qmd/*_files/
+/.quarto/
