@@ -1,7 +1,8 @@
 project:
   type: website
-  output-dir: _site
-  # Every push to main publishes whatever is listed here.
+  # Rendered into docs/ at the repo root, which is committed: GitHub Pages
+  # serves main/docs as the site.
+  output-dir: ../docs
   render:
     - index.qmd
 

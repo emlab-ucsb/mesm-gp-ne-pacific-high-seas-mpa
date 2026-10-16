@@ -1,7 +1,8 @@
 # The Quarto site (qmd/): its map layer and the render. The site's data are
-# built in targets/ais.R and committed under data/, so GitHub Actions can
-# render the site on every push without BigQuery. List each data file the
-# site reads in `deps` below, so the site re-renders when it changes.
+# built in targets/ais.R and committed under data/, and the rendered site is
+# written to docs/ and committed too: GitHub Pages serves main/docs. List each
+# data file the site reads in `deps` below, so the site re-renders when it
+# changes.
 
 report_targets <- list(
   ## Map layer ----
@@ -14,15 +15,18 @@ report_targets <- list(
   ),
 
   ## Quarto site ----
-  # Renders qmd/ to qmd/_site/. Edits to any source file under qmd/ are
-  # tracked because they are part of the returned file set.
+  # Renders qmd/ into docs/. Edits to any source file under qmd/ are tracked
+  # because they are part of the returned file set. Commit docs/ afterwards to
+  # publish.
   targets::tar_target(
     site,
     render_quarto_site(
       qmd_dir = "qmd",
+      output_dir = "docs",
       deps = c(
         study_area_shapefile,
         land_geojson,
+        ais_vessel_class_summary_csv,
         ais_effort_by_pixel_summary_csv,
         ais_download_sizes_csv,
         ais_effort_by_pixel_0p05deg_all_years_csv,

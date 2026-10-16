@@ -373,27 +373,21 @@ ais_targets <- list(
   ),
 
   ## Download sizes ----
-  # How many rows, and roughly how big a CSV, the pixel table would be at a
-  # few resolutions and time steps, and with a couple of filters. Computed in
-  # BigQuery (~0.2 TB in all); add a row to size another cut.
+  # How many rows, and roughly how big a CSV, the pixel table would be at each
+  # resolution and time step, for all activity and for fishing activity only,
+  # plus one year on its own. Computed in BigQuery (~0.2 TB in all). `file`
+  # names the cuts committed under data/ (NA: query BigQuery). Add a row to
+  # size another cut.
   targets::tar_target(
     ais_download_cuts,
-    tibble::tribble(
-      ~cut, ~pixel_size, ~time, ~year, ~fishing_activity_only,
-      "Full table (0.01 deg, monthly)", 0.01, "month", NA, FALSE,
-      "0.01 deg, yearly", 0.01, "year", NA, FALSE,
-      "0.01 deg, all years summed", 0.01, "all", NA, FALSE,
-      "0.05 deg, monthly", 0.05, "month", NA, FALSE,
-      "0.05 deg, yearly", 0.05, "year", NA, FALSE,
-      "0.05 deg, all years summed", 0.05, "all", NA, FALSE,
-      "0.1 deg, monthly", 0.1, "month", NA, FALSE,
-      "0.1 deg, yearly", 0.1, "year", NA, FALSE,
-      "0.1 deg, all years summed", 0.1, "all", NA, FALSE,
-      "2025 only, 0.01 deg, monthly", 0.01, "month", 2025, FALSE,
-      "2025 only, 0.1 deg, monthly", 0.1, "month", 2025, FALSE,
-      "Fishing activity only, 0.01 deg, monthly", 0.01, "month", NA, TRUE,
-      "Fishing activity only, 0.05 deg, yearly", 0.05, "year", NA, TRUE,
-      "Fishing activity only, 0.1 deg, yearly", 0.1, "year", NA, TRUE
+    download_cut_grid(
+      pixel_sizes = c(0.01, 0.05, 0.1),
+      times = c("month", "year", "all"),
+      one_year = 2025,
+      files = c(
+        "all activity, 0.05, all" = "ais_effort_by_pixel_0p05deg_all_years.csv.gz",
+        "fishing activity, 0.05, year" = "ais_fishing_activity_by_pixel_0p05deg_yearly.csv.gz"
+      )
     )
   ),
   targets::tar_target(
@@ -410,7 +404,7 @@ ais_targets <- list(
 
   ## Site data ----
   # Two coarse cuts of the pixel table, gzipped and committed so the Quarto
-  # site (qmd/) renders on GitHub Actions without BigQuery. 0.05 degrees
+  # site (qmd/) and anyone without BigQuery access can use them. 0.05 degrees
   # matches the project's other cost layers. write_csv_file() fails if either
   # passes GitHub's 50 MB limit.
   tarchetypes::tar_file_read(

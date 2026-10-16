@@ -1,6 +1,6 @@
 ---
 title: "Vessel activity in the Northeast Pacific"
-subtitle: "AIS hours of vessel activity and fishing, January 2015 to August 2026: the cost layer for the Cobb-Eickelberg seamount chain prioritization"
+subtitle: "AIS kilowatt-hours of fishing and other vessel activity, January 2015 to August 2026: the cost layer for the Cobb-Eickelberg seamount chain prioritization"
 date: today
 author:
   - name: Gavin McDonald
@@ -17,33 +17,49 @@ The numbers may still change. Please don't cite or circulate them yet.
 :::
 
 ```{r setup}
-#| code-summary: "Setup: data, colours and map helpers"
+#| code-summary: "Setup: data, colours and helpers"
 # Everything here is read from small files committed to ../data by the targets
-# pipeline, so this page renders without BigQuery access. See the README for
-# how they're built.
+# pipeline, so this page renders without BigQuery access.
 
 # Pixel size of the site's data (degrees). It matches the project's other
 # cost layers, and the file names in ../data.
 pixel_size <- 0.05
+data_dir <- "../data"
+repo_url <- "https://github.com/emlab-ucsb/mesm-gp-ne-pacific-high-seas-mpa"
+bq_table <- "emlab-gcp.mesm_gp_ne_pacific_high_seas.ais_effort_by_pixel_v20261016"
 
 all_years <- readr::read_csv(
-  "../data/ais_effort_by_pixel_0p05deg_all_years.csv.gz",
+  file.path(data_dir, "ais_effort_by_pixel_0p05deg_all_years.csv.gz"),
   show_col_types = FALSE
 )
 fishing_yearly <- readr::read_csv(
-  "../data/ais_fishing_activity_by_pixel_0p05deg_yearly.csv.gz",
+  file.path(data_dir, "ais_fishing_activity_by_pixel_0p05deg_yearly.csv.gz"),
   show_col_types = FALSE
 )
-monthly <- readr::read_csv("../data/ais_effort_by_pixel_summary.csv", show_col_types = FALSE)
-download_sizes <- readr::read_csv("../data/ais_effort_by_pixel_download_sizes.csv", show_col_types = FALSE)
-land <- sf::st_read("../data/land_ne_50m.geojson", quiet = TRUE)
-study_area <- sf::st_read("../data/small_gfw_bbox_mesm/gfwbbox_sm.shp", quiet = TRUE)
+monthly <- readr::read_csv(file.path(data_dir, "ais_effort_by_pixel_summary.csv"), show_col_types = FALSE)
+vessel_classes <- readr::read_csv(file.path(data_dir, "ais_vessel_class_summary.csv"), show_col_types = FALSE)
+download_sizes <- readr::read_csv(file.path(data_dir, "ais_effort_by_pixel_download_sizes.csv"), show_col_types = FALSE)
+land <- sf::st_read(file.path(data_dir, "land_ne_50m.geojson"), quiet = TRUE)
+study_area <- sf::st_read(file.path(data_dir, "small_gfw_bbox_mesm", "gfwbbox_sm.shp"), quiet = TRUE)
 
 # The extent of the data: the study area box pushed out to whole degrees
 map_limits <- list(lon = c(-160, -120), lat = c(39, 62))
 
-# Colours: text and chart chrome, and a one-hue blue ramp (light = little,
-# dark = a lot) for every map
+# Activity groups: fishing activity, and non-fishing activity split into the
+# two big users of the area and everything else (tugs, patrol and research
+# vessels, fishing vessels when they aren't fishing, ...)
+group_levels <- c("Fishing activity", "Cargo and tankers", "Passenger", "Other non-fishing")
+activity_group <- function(vessel_class, fishing_activity) {
+  group <- dplyr::case_when(
+    fishing_activity ~ group_levels[1],
+    grepl("cargo|tanker|reefer|bunker", vessel_class) ~ group_levels[2],
+    vessel_class == "passenger" ~ group_levels[3],
+    TRUE ~ group_levels[4]
+  )
+  factor(group, levels = group_levels)
+}
+
+# Colours: text and chart chrome, and viridis for everything that carries data
 ink <- list(
   primary = "#0b0b0b",
   secondary = "#52514e",
@@ -52,12 +68,7 @@ ink <- list(
   surface = "#fcfcfb"
 )
 land_fill <- "#e1e0d9"
-sequential_blue <- c(
-  "#cde2fb", "#b7d3f6", "#9ec5f4", "#86b6ef", "#6da7ec", "#5598e7", "#3987e5",
-  "#2a78d6", "#256abf", "#1c5cab", "#184f95", "#104281", "#0d366b"
-)
-# Categorical colours, always assigned in this order
-series_colours <- c("#2a78d6", "#eb6834", "#1baf7a")
+data_colour <- viridisLite::viridis(1, begin = 0.4, end = 0.4)
 
 theme_site <- function() {
   ggplot2::theme_minimal(base_size = 11) +
@@ -69,8 +80,7 @@ theme_site <- function() {
       text = ggplot2::element_text(colour = ink$secondary),
       axis.text = ggplot2::element_text(colour = ink$muted),
       plot.title = ggplot2::element_text(colour = ink$primary, face = "bold"),
-      plot.caption = ggplot2::element_text(colour = ink$muted, hjust = 0),
-      strip.text = ggplot2::element_text(colour = ink$primary),
+      strip.text = ggplot2::element_text(colour = ink$primary, face = "bold", hjust = 0),
       legend.position = "top",
       legend.justification = "left"
     )
@@ -84,15 +94,22 @@ theme_map <- function() {
     )
 }
 
-# Hours per pixel on a log scale. Vessel activity spans about nine orders of
-# magnitude, from a few minutes in empty ocean to millions of hours in port,
-# so the colours run from the 5th to the 99th percentile of pixels (rounded
-# out to powers of ten) and anything beyond takes the end colour; the legend
-# marks the two ends with <= and >=.
-colour_limits <- function(hours) {
+# Short-scale labels: 300M, 1.2B
+short_number <- scales::label_number(
+  accuracy = 0.1,
+  scale_cut = scales::cut_short_scale(),
+  drop0trailing = TRUE
+)
+
+# kW-hours per pixel on a log scale. Vessel activity spans about nine orders
+# of magnitude, from a few minutes in empty ocean to years of engine time in
+# port, so the colours run from the 5th to the 99th percentile of pixels
+# (rounded out to powers of ten) and anything beyond takes the end colour; the
+# legend marks the two ends with <= and >=.
+colour_limits <- function(values) {
   10^c(
-    floor(log10(stats::quantile(hours, 0.05))),
-    ceiling(log10(stats::quantile(hours, 0.99)))
+    floor(log10(stats::quantile(values, 0.05))),
+    ceiling(log10(stats::quantile(values, 0.99)))
   )
 }
 
@@ -113,9 +130,9 @@ log_labels <- function(breaks) {
   labels
 }
 
-fill_hours <- function(name, limits) {
-  ggplot2::scale_fill_gradientn(
-    colours = sequential_blue,
+fill_kw_hours <- function(name, limits) {
+  ggplot2::scale_fill_viridis_c(
+    option = "viridis",
     trans = "log10",
     limits = limits,
     breaks = 10^seq(log10(limits[1]), log10(limits[2])),
@@ -130,27 +147,43 @@ fill_hours <- function(name, limits) {
   )
 }
 
+# Map one value per pixel (`kw_hours`)
 map_pixels <- function(pixels, fill_name) {
   ggplot2::ggplot() +
     ggplot2::geom_tile(
       data = pixels,
-      ggplot2::aes(x = lon_center, y = lat_center, fill = hours),
+      ggplot2::aes(x = lon_center, y = lat_center, fill = kw_hours),
       width = pixel_size,
       height = pixel_size
     ) +
     ggplot2::geom_sf(data = land, fill = land_fill, colour = NA) +
     ggplot2::geom_sf(data = study_area, fill = NA, colour = ink$secondary, linewidth = 0.3) +
-    fill_hours(fill_name, limits = colour_limits(pixels$hours)) +
+    fill_kw_hours(fill_name, limits = colour_limits(pixels$kw_hours)) +
     ggplot2::coord_sf(xlim = map_limits$lon, ylim = map_limits$lat, expand = FALSE) +
     theme_map()
 }
 
+# "drifting_longlines" -> "Drifting longlines", with the catch-all classes
+# spelled out
+pretty_class <- function(x) {
+  catch_alls <- c(
+    fishing = "Fishing (gear unknown)",
+    non_fishing = "Non-fishing (type unknown)",
+    other_not_fishing = "Other non-fishing",
+    dredge_non_fishing = "Dredge (non-fishing)"
+  )
+  pretty <- gsub("_", " ", x)
+  pretty <- paste0(toupper(substr(pretty, 1, 1)), substr(pretty, 2, nchar(pretty)))
+  dplyr::if_else(x %in% names(catch_alls), unname(catch_alls[x]), pretty)
+}
+
 millions <- function(x) scales::label_number(accuracy = 0.1, scale = 1e-6, suffix = " million")(x)
-percent <- function(x) scales::label_percent(accuracy = 1)(x)
+billions <- function(x) scales::label_number(accuracy = 1, scale = 1e-9, suffix = " billion")(x)
+percent <- function(x, accuracy = 1) scales::label_percent(accuracy = accuracy)(x)
 
 total_hours <- sum(all_years$hours)
-fishing_hours <- sum(all_years$hours[all_years$fishing_activity])
-passenger_hours <- sum(all_years$hours[all_years$vessel_class == "passenger"])
+total_kw_hours <- sum(all_years$kw_hours)
+fishing_kw_hours <- sum(all_years$kw_hours[all_years$fishing_activity])
 first_month <- format(min(monthly$month), "%B %Y")
 last_month <- format(max(monthly$month), "%B %Y")
 ```
@@ -161,99 +194,148 @@ The data here are [Global Fishing Watch](https://globalfishingwatch.org)
 broadcast their position, and GFW turns those positions into hours of
 activity, with a model estimate of when fishing vessels are actually fishing.
 Over the whole period there are `r millions(total_hours)` hours of vessel
-activity in the area. `r millions(fishing_hours)` of them
-(`r percent(fishing_hours / total_hours)`) are fishing activity.
+activity in the area.
 
-The maps below use `r pixel_size`° pixels and the full period. The outline is
-the study area box. Colours are on a log scale and capped at both ends (≤ and
-≥ on the legend), so both the open ocean and the busiest lanes stay readable. The full-resolution data (0.01°, monthly, by vessel class)
-is in BigQuery; see the [README](https://github.com/emlab-ucsb/mesm-gp-ne-pacific-high-seas-mpa#readme)
-for what's in it and how to get it.
+Everything on this page is in **kilowatt-hours**: hours weighted by each
+vessel's engine power, the standard GFW measure of effort. That's
+`r billions(total_kw_hours)` kW-hours in all. Only
+`r percent(fishing_kw_hours / total_kw_hours, accuracy = 0.01)` of them are
+fishing activity: cargo ships and tankers run engines many times bigger than
+most fishing vessels, so non-fishing activity is about
+`r scales::label_number(accuracy = 10)((total_kw_hours - fishing_kw_hours) / fishing_kw_hours)`
+times fishing activity in kW-hours. That's why fishing and non-fishing get
+their own maps and panels below, each on its own scale.
 
-## Where vessels go
+The maps use `r pixel_size`° pixels and the whole period. The outline is the
+study area box. Colours are on a log scale and capped at both ends (≤ and ≥
+on the legend), so both the open ocean and the busiest areas stay readable.
+If you want to work with the data, skip to [Working with the data](#working-with-the-data).
 
-```{r map-all-vessels}
-#| fig-cap: "Hours of activity by all vessels, January 2015 to August 2026."
-all_vessels <- all_years |>
-  dplyr::group_by(lon_center, lat_center) |>
-  dplyr::summarise(hours = sum(hours), .groups = "drop")
+# What the data show
 
-map_pixels(all_vessels, "Vessel hours per pixel, all vessels")
-```
-
-Most of this is not fishing. Passenger vessels alone are
-`r percent(passenger_hours / total_hours)` of all hours, and shipping lanes
-and coastal traffic dominate the picture. If the cost layer is meant to
-capture fishing pressure, the fishing activity map below is the better
-starting point.
-
-## Where fishing happens
+## Fishing activity
 
 ```{r map-fishing}
-#| fig-cap: "Hours of fishing activity, January 2015 to August 2026: fishing vessels at positions GFW's model scores as fishing."
+#| fig-cap: "Kilowatt-hours of fishing activity, January 2015 to August 2026: fishing vessels at positions GFW's model scores as fishing."
 fishing <- all_years |>
   dplyr::filter(fishing_activity) |>
   dplyr::group_by(lon_center, lat_center) |>
-  dplyr::summarise(hours = sum(hours), .groups = "drop")
+  dplyr::summarise(kw_hours = sum(kw_hours), .groups = "drop")
 
-map_pixels(fishing, "Fishing hours per pixel")
+map_pixels(fishing, "Fishing kW-hours per pixel")
 ```
 
 ### Year by year
 
 ```{r map-fishing-by-year}
-#| fig-cap: "Hours of fishing activity per year. 2026 covers January to August only."
+#| fig-cap: "Kilowatt-hours of fishing activity per year. 2026 covers January to August only."
 #| fig-height: 9
 fishing_by_year <- fishing_yearly |>
   dplyr::group_by(year, lon_center, lat_center) |>
-  dplyr::summarise(hours = sum(hours), .groups = "drop") |>
+  dplyr::summarise(kw_hours = sum(kw_hours), .groups = "drop") |>
   dplyr::mutate(
     year_label = dplyr::if_else(year == max(year), paste(year, "(Jan to Aug)"), as.character(year))
   )
 
-map_pixels(fishing_by_year, "Fishing hours per pixel") +
+map_pixels(fishing_by_year, "Fishing kW-hours per pixel") +
   ggplot2::facet_wrap(ggplot2::vars(year_label), ncol = 4) +
   ggplot2::theme(axis.text = ggplot2::element_blank())
 ```
 
+## Non-fishing activity
+
+```{r map-non-fishing}
+#| fig-cap: "Kilowatt-hours of non-fishing activity, January 2015 to August 2026, all on one colour scale. Other non-fishing includes tugs, patrol and research vessels, and fishing vessels when they aren't fishing."
+#| fig-height: 8
+non_fishing <- all_years |>
+  dplyr::filter(!fishing_activity) |>
+  dplyr::mutate(group = activity_group(vessel_class, fishing_activity))
+
+non_fishing_panels <- dplyr::bind_rows(
+  non_fishing |>
+    dplyr::group_by(lon_center, lat_center) |>
+    dplyr::summarise(kw_hours = sum(kw_hours), .groups = "drop") |>
+    dplyr::mutate(panel = "All non-fishing activity"),
+  non_fishing |>
+    dplyr::group_by(panel = as.character(group), lon_center, lat_center) |>
+    dplyr::summarise(kw_hours = sum(kw_hours), .groups = "drop")
+) |>
+  dplyr::mutate(panel = factor(panel, levels = c("All non-fishing activity", group_levels[-1])))
+
+map_pixels(non_fishing_panels, "Non-fishing kW-hours per pixel") +
+  ggplot2::facet_wrap(ggplot2::vars(panel), ncol = 2) +
+  ggplot2::theme(axis.text = ggplot2::element_blank())
+```
+
+## By vessel type
+
+```{r by-vessel-type}
+#| fig-cap: "Kilowatt-hours by vessel type, January 2015 to August 2026. The two panels have different scales. Non-fishing activity includes fishing vessels' time when they aren't fishing. Classes outside the top ten in a panel are grouped as Other."
+#| fig-height: 5.5
+top_n_classes <- 10
+activity_levels <- c("Fishing activity", "Non-fishing activity")
+
+by_class <- all_years |>
+  dplyr::mutate(
+    activity = factor(
+      dplyr::if_else(fishing_activity, activity_levels[1], activity_levels[2]),
+      levels = activity_levels
+    )
+  ) |>
+  dplyr::group_by(activity, vessel_class) |>
+  dplyr::summarise(kw_hours = sum(kw_hours), .groups = "drop") |>
+  dplyr::group_by(activity) |>
+  dplyr::mutate(
+    vessel_type = dplyr::if_else(
+      dplyr::min_rank(dplyr::desc(kw_hours)) <= top_n_classes,
+      pretty_class(vessel_class),
+      "Other"
+    )
+  ) |>
+  dplyr::group_by(activity, vessel_type) |>
+  dplyr::summarise(kw_hours = sum(kw_hours), .groups = "drop") |>
+  # Order bars within each panel, largest at the top and Other at the bottom
+  dplyr::mutate(
+    sort_value = dplyr::if_else(vessel_type == "Other", -Inf, kw_hours),
+    bar = paste(activity, vessel_type, sep = "___")
+  ) |>
+  dplyr::arrange(activity, sort_value) |>
+  dplyr::mutate(bar = factor(bar, levels = unique(bar)))
+
+ggplot2::ggplot(by_class, ggplot2::aes(x = kw_hours, y = bar)) +
+  ggplot2::geom_col(fill = data_colour, width = 0.7) +
+  ggplot2::facet_wrap(ggplot2::vars(activity), scales = "free", ncol = 2) +
+  ggplot2::scale_y_discrete(labels = function(x) sub("^.*___", "", x)) +
+  ggplot2::scale_x_continuous(
+    labels = short_number,
+    breaks = scales::breaks_extended(n = 4),
+    expand = ggplot2::expansion(mult = c(0, 0.1))
+  ) +
+  ggplot2::labs(x = "kW-hours", y = NULL) +
+  theme_site() +
+  ggplot2::theme(panel.grid.major.y = ggplot2::element_blank())
+```
+
 ## Over time
 
-```{r monthly-hours}
-#| fig-cap: "Hours of vessel activity per month."
-#| fig-height: 4.5
-group_levels <- c("Passenger vessels", "Fishing vessels", "All other vessels")
+```{r monthly-kw-hours}
+#| fig-cap: "Kilowatt-hours per month. Each panel has its own scale."
+#| fig-height: 8
 monthly_groups <- monthly |>
-  dplyr::mutate(
-    group = dplyr::case_when(
-      vessel_class == "passenger" ~ group_levels[1],
-      fishing_vessel ~ group_levels[2],
-      TRUE ~ group_levels[3]
-    ),
-    group = factor(group, levels = group_levels)
-  ) |>
+  dplyr::mutate(group = activity_group(vessel_class, fishing_activity)) |>
   dplyr::group_by(month, group) |>
-  dplyr::summarise(hours = sum(hours), .groups = "drop")
+  dplyr::summarise(kw_hours = sum(kw_hours), .groups = "drop")
 
-line_ends <- monthly_groups |>
-  dplyr::filter(month == max(month))
-
-ggplot2::ggplot(monthly_groups, ggplot2::aes(x = month, y = hours, colour = group)) +
-  ggplot2::geom_line(linewidth = 0.7) +
-  ggplot2::geom_text(
-    data = line_ends,
-    ggplot2::aes(label = group),
-    colour = ink$secondary,
-    hjust = 0,
-    nudge_x = 60,
-    size = 3.3
+ggplot2::ggplot(monthly_groups, ggplot2::aes(x = month, y = kw_hours)) +
+  ggplot2::geom_line(colour = data_colour, linewidth = 0.7) +
+  ggplot2::facet_wrap(ggplot2::vars(group), scales = "free_y", ncol = 1) +
+  ggplot2::scale_x_date(
+    date_breaks = "1 year",
+    date_labels = "%Y",
+    expand = ggplot2::expansion(mult = c(0.01, 0.01))
   ) +
-  ggplot2::scale_colour_manual(values = stats::setNames(series_colours, group_levels), name = NULL) +
-  ggplot2::scale_x_date(expand = ggplot2::expansion(mult = c(0.01, 0.2))) +
-  ggplot2::scale_y_continuous(
-    labels = scales::label_number(scale_cut = scales::cut_short_scale()),
-    limits = c(0, NA)
-  ) +
-  ggplot2::labs(x = NULL, y = "Vessel hours per month") +
+  ggplot2::scale_y_continuous(labels = short_number, limits = c(0, NA)) +
+  ggplot2::labs(x = NULL, y = "kW-hours per month") +
   theme_site()
 ```
 
@@ -262,61 +344,284 @@ well AIS is picked up. Satellite AIS reception has improved a lot since 2015,
 so some of any rise is better coverage rather than more vessels.
 
 ```{r yearly-fishing}
-#| fig-cap: "Hours of fishing activity per year. 2026 covers January to August only."
+#| fig-cap: "Kilowatt-hours of fishing activity per year. 2026 covers January to August only."
 #| fig-height: 4
 yearly_fishing <- fishing_yearly |>
   dplyr::group_by(year) |>
-  dplyr::summarise(hours = sum(hours), .groups = "drop") |>
+  dplyr::summarise(kw_hours = sum(kw_hours), .groups = "drop") |>
   dplyr::mutate(
     year_label = dplyr::if_else(year == max(year), paste0(year, "\n(Jan to Aug)"), as.character(year))
   )
 
-ggplot2::ggplot(yearly_fishing, ggplot2::aes(x = year_label, y = hours)) +
-  ggplot2::geom_col(fill = series_colours[1], width = 0.7) +
+ggplot2::ggplot(yearly_fishing, ggplot2::aes(x = year_label, y = kw_hours)) +
+  ggplot2::geom_col(fill = data_colour, width = 0.7) +
   ggplot2::scale_y_continuous(
-    labels = scales::label_number(scale_cut = scales::cut_short_scale()),
+    labels = short_number,
     expand = ggplot2::expansion(mult = c(0, 0.05))
   ) +
-  ggplot2::labs(x = NULL, y = "Fishing hours per year") +
+  ggplot2::labs(x = NULL, y = "Fishing kW-hours per year") +
   theme_site() +
   ggplot2::theme(panel.grid.major.x = ggplot2::element_blank())
 ```
 
-## Getting the data
+# Working with the data
 
-The full table is big, so aggregate it in BigQuery before you download it.
-This is roughly how big a CSV would be at a few resolutions, time steps and
-filters. Every cut keeps the vessel class and the two fishing columns.
-Gzipping a CSV makes it about four times smaller.
+## Files you can start with
 
-```{r download-sizes}
-format_size <- function(mb) {
-  dplyr::if_else(
-    mb >= 1000,
-    paste(scales::label_number(accuracy = 0.1)(mb / 1000), "GB"),
-    paste(scales::label_number(accuracy = 1)(pmax(mb, 1)), "MB")
-  )
-}
+These are in the repo's [data/](`r repo_url`/tree/main/data) folder, so you
+can read them straight into R with no BigQuery access. The
+[data README](`r repo_url`/blob/main/data/README.md) has every column of every
+file. `readr::read_csv()` reads the `.csv.gz` files as they are.
 
-download_sizes |>
-  dplyr::transmute(
-    Cut = cut,
-    Rows = scales::label_number(accuracy = 0.1, scale_cut = scales::cut_short_scale())(n_rows),
-    `CSV size` = format_size(csv_mb)
+```{r starter-files}
+starter_files <- tibble::tribble(
+  ~file, ~contents, ~data,
+  "ais_effort_by_pixel_0p05deg_all_years.csv.gz",
+  "All activity at 0.05°, summed over the whole period, by vessel class, fishing vessel and fishing activity. The one to start with.",
+  all_years,
+  "ais_fishing_activity_by_pixel_0p05deg_yearly.csv.gz",
+  "Fishing activity at 0.05°, by year and vessel class.",
+  fishing_yearly,
+  "ais_effort_by_pixel_summary.csv",
+  "Monthly totals for the whole box, by vessel class, fishing vessel and fishing activity (no pixels).",
+  monthly,
+  "ais_vessel_class_summary.csv",
+  "Number of vessels in each class, and how many the filters dropped.",
+  vessel_classes
+)
+
+starter_files |>
+  dplyr::mutate(
+    File = paste0("[`", file, "`](", repo_url, "/blob/main/data/", file, ")"),
+    Rows = scales::label_comma()(vapply(data, nrow, integer(1))),
+    Size = scales::label_bytes(units = "auto_si", accuracy = 0.1)(file.size(file.path(data_dir, file)))
   ) |>
-  knitr::kable(align = c("l", "r", "r"))
+  dplyr::select(File, `What's in it` = contents, Rows, Size) |>
+  knitr::kable(align = c("l", "l", "r", "r"))
 ```
 
-The [README](https://github.com/emlab-ucsb/mesm-gp-ne-pacific-high-seas-mpa#readme)
-has example R code for querying and downloading the table, what was filtered
-out and why, and the caveats to keep in mind.
+For example, total fishing kW-hours per 0.05° pixel, as a raster:
 
-## Code, data and use of generative AI
+```{r example-raster}
+#| echo: true
+#| eval: false
+effort <- readr::read_csv("data/ais_effort_by_pixel_0p05deg_all_years.csv.gz")
 
-All code is written in R and SQL and is in the [GitHub
-repository](https://github.com/emlab-ucsb/mesm-gp-ne-pacific-high-seas-mpa).
-The pipeline runs in BigQuery, and every number on this page is computed from
-its outputs when the page is built.
+fishing_kw_hours <- effort |>
+  dplyr::filter(fishing_activity) |>
+  dplyr::group_by(lon_center, lat_center) |>
+  dplyr::summarise(kw_hours = sum(kw_hours), .groups = "drop")
+
+# The files store pixel centres, which is what terra wants
+fishing_raster <- terra::rast(fishing_kw_hours, type = "xyz", crs = "EPSG:4326")
+```
+
+## Bigger datasets
+
+If you need more detail (months, finer pixels, or a single year), it comes
+from the full table in emLab's BigQuery project. That needs special
+permissions, so **Gavin pulls these for you**: pick the option you want from
+this table (or describe what you need) and ask him. The table sizes every
+reasonable option, so you can see what you'd be getting. Every option keeps
+the vessel class and the two fishing columns.
+
+```{r bigger-datasets}
+# How much gzip shrinks these files, measured on the ones in the repo
+in_repo <- download_sizes |> dplyr::filter(!is.na(file))
+gzip_ratio <- mean(in_repo$csv_mb / (file.size(file.path(data_dir, in_repo$file)) / 1e6))
+# Download speed from BigQuery with bigrquery, measured on a 665,000-row cut
+rows_per_second <- 40000
+
+format_mb <- function(mb) {
+  dplyr::case_when(
+    mb >= 1000 ~ paste(scales::label_number(accuracy = 0.1, drop0trailing = TRUE)(mb / 1000), "GB"),
+    mb >= 10 ~ paste(scales::label_number(accuracy = 1)(mb), "MB"),
+    TRUE ~ paste(scales::label_number(accuracy = 0.1, drop0trailing = TRUE)(pmax(mb, 0.1)), "MB")
+  )
+}
+format_duration <- function(seconds) {
+  dplyr::case_when(
+    seconds < 60 ~ "under a minute",
+    seconds < 3600 ~ paste0("~", round(seconds / 60), " min"),
+    TRUE ~ paste0("~", scales::label_number(accuracy = 0.5, drop0trailing = TRUE)(seconds / 3600), " h")
+  )
+}
+time_labels <- c(month = "Monthly", year = "Yearly", all = "Whole period")
+
+download_sizes |>
+  dplyr::mutate(
+    Activity = dplyr::if_else(fishing_activity_only, "Fishing only", "All"),
+    Pixels = paste0(format(pixel_size, nsmall = 2), "°"),
+    `Time step` = unname(time_labels[time]),
+    Years = dplyr::if_else(is.na(year), "2015 to 2026", as.character(year)),
+    Rows = short_number(n_rows),
+    CSV = format_mb(csv_mb),
+    `Gzipped (approx.)` = format_mb(csv_mb / gzip_ratio),
+    `Download (approx.)` = format_duration(n_rows / rows_per_second),
+    Where = dplyr::if_else(
+      is.na(file),
+      "BigQuery",
+      paste0("[In the repo](", repo_url, "/blob/main/data/", file, ")")
+    )
+  ) |>
+  # All activity first, then fishing only; within each, the whole window
+  # before single years, coarse time steps before fine, coarse pixels first
+  dplyr::arrange(Activity == "Fishing only", !is.na(year), time != "all", time != "year", dplyr::desc(pixel_size)) |>
+  dplyr::select(Activity, Pixels, `Time step`, Years, Rows, CSV, `Gzipped (approx.)`, `Download (approx.)`, Where) |>
+  knitr::kable(align = c("l", "l", "l", "l", "r", "r", "r", "r", "l"))
+```
+
+Some rules of thumb:
+
+- **The sizes are close to exact.** They're computed in BigQuery from the
+  real data, and one cut downloaded to check came out at the estimated size.
+- **Anything under ~10 million rows** downloads in a few minutes and is easy
+  to work with on a laptop. Over ~50 million rows gets slow, and the full
+  table (262 million rows) won't fit in a laptop's memory.
+- **Save big downloads gzipped** (`readr::write_csv("x.csv.gz")`) or as
+  Parquet (`arrow::write_parquet()`), and keep them on the shared drive.
+  GitHub won't take files over 50 MB.
+
+## What's in the full table
+
+The full table is `` `r bq_table` `` in BigQuery: one row per month, 0.01°
+pixel, vessel class, fishing vessel or not, and fishing activity or not. The
+files above have the same columns, aggregated.
+
+| Column | What it is |
+|---|---|
+| `month` | First day of the month (UTC). |
+| `lon_center`, `lat_center` | Centre of the pixel. A 0.01° pixel spans ±0.005° around it. |
+| `vessel_class` | The vessel's type, e.g. `trawlers`, `cargo`, `passenger`, `tug`. |
+| `fishing_vessel` | `TRUE` if GFW classifies the vessel as a fishing vessel. This is about *what the vessel is*. |
+| `fishing_activity` | `TRUE` for time spent fishing. This is about *what the vessel was doing*. |
+| `hours` | Hours of vessel activity. |
+| `kw_hours` | Hours × the vessel's engine power (kW). |
+
+Only rows with some activity are in the table: a pixel-month with no vessels
+has no row, so treat missing as zero.
+
+- **Hours vs kW-hours.** Hours is how much time vessels spent there.
+  kW-hours weights each hour by the vessel's engine power, so an hour from a
+  big trawler counts for more than an hour from a small troller. Engine power
+  comes from GFW's model (replaced by registry values where they exist), and
+  every vessel has one.
+- **`fishing_vessel` vs `fishing_activity`.** A trawler steaming to port is a
+  fishing vessel that isn't fishing: `fishing_vessel = TRUE`,
+  `fishing_activity = FALSE`. A cargo ship is never fishing. The pipeline
+  checks every row, so a non-fishing vessel can never have fishing activity.
+  Fishing activity is GFW's model estimate of when a vessel is fishing, based
+  on how it moves; GFW calls it "apparent fishing".
+- **Vessel classes** come from GFW's vessel classification model. When it
+  isn't confident about a fishing vessel's gear, it falls back to the generic
+  class `fishing`. Where it has a best guess for one of the gears it predicts
+  well (trawlers, drifting longlines, set gillnets, tuna purse seines, squid
+  jiggers), we use that guess instead. There's a similar catch-all on the
+  non-fishing side, `non_fishing`.
+
+## How it was built
+
+1. **The vessel list.** GFW's vessel identity table (one row per vessel,
+   identified by MMSI, the vessel's AIS ID), using GFW's "pipeline 5" models
+   for each vessel's class, whether it's a fishing vessel, and its engine
+   power.
+2. **The positions.** Every AIS position in the box from January 2015 to
+   August 2026, on GFW's "good" track segments only.
+3. **Fishing or not.** Each position from a fishing vessel gets GFW's fishing
+   call (squid jiggers use a night-loitering rule, since they fish at night
+   under lights). Positions from non-fishing vessels are never fishing.
+4. **The pixels.** Positions are binned into 0.01° pixels and summed by
+   month, vessel class and the two fishing flags.
+
+**The box** is the rectangle in `data/small_gfw_bbox_mesm/` (lon −160 to
+−120, lat 39.89 to 61.55), pushed out to whole degrees (lat 39 to 62) so that
+coarser pixels (0.05°, 0.1°, 0.25°, 0.5°, 1°) are never cut by its edge. To
+trim back to the box as drawn, filter on `lat_center`.
+
+**What was left out, and why:**
+
+- **Fishing gear.** Lots of AIS transmitters are on nets and buoys, not
+  vessels.
+- **Vessels GFW couldn't classify,** which have too little AIS activity for
+  the model (about 0.2% of hours).
+- **Noisy vessels:** MMSIs GFW saw broadcasting impossible positions, or
+  shared by two vessels at once. A vessel that was ever noisy is dropped from
+  *every* year, so each vessel is in the time series for all of its years or
+  none of them.
+- **Anything after August 2026,** where GFW's vessel identity data currently
+  ends.
+
+## Things to watch out for
+
+- **The box isn't all high seas.** It takes in a big chunk of the US and
+  Canadian EEZs, the coast and inland waters. Clip to your planning region
+  before you use any of it as a cost.
+- **Decide early what "cost" means.** Fishing activity only, fishing
+  kW-hours, or all traffic? They give very different maps, and non-fishing
+  traffic is hundreds of times bigger in kW-hours.
+- **AIS doesn't see everything.** Not every vessel carries AIS, some switch
+  it off, and reception varies by place and over time. Be careful reading
+  trends from raw totals.
+- **Fishing activity is a model estimate,** not observed fishing.
+- **Hours and kW-hours add up; vessel counts don't.** Sum `hours` and
+  `kw_hours` across pixels, months and classes however you like. There are
+  no vessel counts per pixel, because the same vessel shows up in many
+  pixels and months.
+- **Coastal pixels include time in port,** as non-fishing activity.
+
+## Requesting more data
+
+Anything beyond the files in `data/` comes from emLab's BigQuery project
+(`emlab-gcp`), which needs special permissions. Students don't have them, so
+**ask Gavin and he'll pull the data for you.** The most useful request names
+an option from the [bigger datasets](#bigger-datasets) table, or says what
+resolution, time step, years and activity you need.
+
+For reference, and for anyone who does have access, this is what a request
+looks like as a query. This one is fishing activity by year at 0.1°:
+
+```{r example-bigquery}
+#| echo: true
+#| eval: false
+sql <- "
+SELECT
+  EXTRACT(YEAR FROM month) AS year,
+  ROUND(FLOOR(lon_center / 0.1) * 0.1 + 0.05, 3) AS lon_center,
+  ROUND(FLOOR(lat_center / 0.1) * 0.1 + 0.05, 3) AS lat_center,
+  vessel_class,
+  SUM(hours) AS hours,
+  SUM(kw_hours) AS kw_hours
+FROM `emlab-gcp.mesm_gp_ne_pacific_high_seas.ais_effort_by_pixel_v20261016`
+WHERE fishing_activity
+GROUP BY 1, 2, 3, 4
+"
+
+fishing <- bigrquery::bq_project_query("emlab-gcp", sql) |>
+  bigrquery::bq_table_download()
+```
+
+The `FLOOR(... / 0.1) * 0.1 + 0.05` bit regrids the 0.01° pixels to 0.1°; for
+0.05° pixels, swap in 0.05 and 0.025. Because the table stores pixel centres,
+this is always exact. With access, run `bigrquery::bq_auth()` once to log in,
+and to keep queries cheap and fast:
+
+- **Filter on `month`** when you can: the table is partitioned by month, so
+  `WHERE month BETWEEN '2025-01-01' AND '2025-12-01'` only reads 2025.
+- **Filter on `fishing_activity`** early if that's all you need: the table is
+  clustered on it, and fishing rows are a percent or two of the table.
+- **Try queries in the BigQuery console first.** It shows how much a query
+  will read before you run it. A query over the whole table reads about
+  13 GB, roughly $0.07.
+
+# Code, data and use of generative AI
+
+All code is written in R and SQL and is in the
+[GitHub repository](`r repo_url`), along with how to reproduce the data. The
+pipeline runs in BigQuery, and every number on this page is computed from its
+outputs when the page is built. AIS data and models are from
+[Global Fishing Watch](https://globalfishingwatch.org) (pipeline 5), and the
+coastlines from [Natural Earth](https://www.naturalearthdata.com). Credit GFW
+whenever you use or show this data.
 
 Claude (Anthropic), model Opus 5.5, was used as a coding assistant through
 Claude Code in October 2026. It drafted and edited the R pipeline, the SQL

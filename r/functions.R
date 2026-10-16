@@ -357,8 +357,8 @@ project_bq_table_size <- function(bq_table_meta, n_months, n_months_full) {
 }
 
 # ---- Data files --------------------------------------------------------------
-# Small tables the report needs are downloaded to data/ and committed, so the
-# Quarto report can render on GitHub Actions without BigQuery credentials.
+# Small tables the site needs are downloaded to data/ and committed, so the
+# Quarto site renders, and the data can be used, without BigQuery credentials.
 # Each helper returns the file path so the target can use format = "file".
 
 # Download a whole BigQuery table (from its bq_table_meta) and write it as CSV.
@@ -431,9 +431,10 @@ write_csv_file <- function(tibble_to_write, path) {
 #                           are coarsened from their centres),
 #   time                    "month", "year" or "all" (summed over the window),
 #   year                    NA for every year, or one year,
-#   fishing_activity_only   TRUE to keep only fishing activity rows.
-# Every cut keeps the table's other columns (vessel_class, fishing_vessel,
-# fishing_activity). The CSV size counts each field as
+#   fishing_activity_only   TRUE to keep only fishing activity rows,
+# plus any other columns (e.g. where the cut is available), which are passed
+# through to the result. Every cut keeps the table's other columns
+# (vessel_class, fishing_vessel, fishing_activity). The CSV size counts each field as
 # download_bq_table_to_csv() would write it (doubles to 7 significant digits);
 # checked against a real download on 2026-10-16, it matched to 0.1 MB in 36 MB.
 estimate_csv_sizes <- function(bq_table_meta, cuts, billing_project, max_tb_billed = 0.1) {
@@ -501,8 +502,8 @@ estimate_csv_sizes <- function(bq_table_meta, cuts, billing_project, max_tb_bill
     )
     # Byte counts pass R's integer limit (~2.1e9), so read them as doubles
     result <- bigrquery::bq_table_download(job, bigint = "numeric", quiet = TRUE)
-    tibble::tibble(
-      cut = spec$cut,
+    dplyr::mutate(
+      spec,
       n_rows = as.numeric(result$n_rows),
       csv_mb = as.numeric(result$csv_bytes) / 1e6
     )
@@ -563,12 +564,13 @@ write_land_geojson <- function(study_area_bbox, path, pad_deg = 1) {
   path
 }
 
-# Render the Quarto project in `qmd_dir`. Returns the source files plus the
+# Render the Quarto project in `qmd_dir` into `output_dir` (its output-dir in
+# _quarto.yml), which GitHub Pages serves. Returns the source files plus the
 # rendered HTML, so a format = "file" target re-renders when either the source
 # or (via `deps`, the data files passed in only to create the dependency) the
 # data change. Falls back to the Quarto CLI bundled with Positron or RStudio
 # when none is on the PATH.
-render_quarto_site <- function(qmd_dir, deps = NULL) {
+render_quarto_site <- function(qmd_dir, output_dir, deps = NULL) {
   if (is.null(quarto::quarto_path())) {
     bundled <- c(
       "/Applications/Positron.app/Contents/Resources/app/quarto/bin/quarto",
@@ -582,11 +584,14 @@ render_quarto_site <- function(qmd_dir, deps = NULL) {
   }
   # quiet = FALSE so a failing chunk is named in the pipeline log
   quarto::quarto_render(qmd_dir, as_job = FALSE, quiet = FALSE)
-  sources <- list.files(qmd_dir, recursive = TRUE, full.names = TRUE)
-  sources <- sources[!startsWith(sources, file.path(qmd_dir, "_site"))]
-  output <- file.path(qmd_dir, "_site", "index.html")
+  # GitHub Pages serves the folder as-is; .nojekyll stops it running Jekyll
+  file.create(file.path(output_dir, ".nojekyll"))
+  output <- file.path(output_dir, "index.html")
   stopifnot(file.exists(output))
-  c(sources, output)
+  for (path in list.files(output_dir, recursive = TRUE, full.names = TRUE)) {
+    assert_under_github_size_limit(path)
+  }
+  c(list.files(qmd_dir, recursive = TRUE, full.names = TRUE), output)
 }
 
 # The fields of a BigQuery table's metadata that change only when the table is
@@ -595,4 +600,37 @@ render_quarto_site <- function(qmd_dir, deps = NULL) {
 # their own (such as long-term storage bytes after 90 days).
 stable_bq_table_meta <- function(meta) {
   meta[c("tableReference", "numRows", "numBytes", "lastModifiedTime")]
+}
+
+# Every combination of `pixel_sizes` and `times`, for all activity and for
+# fishing activity only, plus every pixel size by month for `one_year` alone:
+# the cuts estimate_csv_sizes() sizes. `files` maps
+# "<activity>, <pixel size>, <time>" to the file under data/ holding that cut.
+download_cut_grid <- function(pixel_sizes, times, one_year, files = character()) {
+  grid <- expand.grid(
+    pixel_size = pixel_sizes,
+    time = times,
+    fishing_activity_only = c(FALSE, TRUE),
+    stringsAsFactors = FALSE
+  )
+  # Integer, so round_doubles() leaves it alone
+  grid$year <- NA_integer_
+  single_year <- expand.grid(
+    pixel_size = pixel_sizes,
+    time = "month",
+    fishing_activity_only = FALSE,
+    stringsAsFactors = FALSE
+  )
+  single_year$year <- as.integer(one_year)
+  cuts <- tibble::as_tibble(rbind(grid, single_year))
+  activity <- ifelse(cuts$fishing_activity_only, "fishing activity", "all activity")
+  time_label <- c(month = "monthly", year = "yearly", all = "all years summed")[cuts$time]
+  cuts$cut <- paste0(
+    ifelse(is.na(cuts$year), "", paste0(cuts$year, " only, ")),
+    ifelse(cuts$fishing_activity_only, "fishing activity only, ", ""),
+    format(cuts$pixel_size, nsmall = 2), " deg, ", time_label
+  )
+  key <- paste0(activity, ", ", cuts$pixel_size, ", ", cuts$time)
+  cuts$file <- ifelse(is.na(cuts$year) & key %in% names(files), unname(files[key]), NA_character_)
+  cuts[c("cut", "pixel_size", "time", "year", "fishing_activity_only", "file")]
 }
