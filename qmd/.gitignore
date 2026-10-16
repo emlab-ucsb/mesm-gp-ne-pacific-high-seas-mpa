@@ -1,0 +1,6 @@
+/.quarto/
+**/*.quarto_ipynb
+# Pages rendered on their own (outside the site's render list) land here;
+# the site itself renders to _site/.
+/*.html
+/*_files/
