@@ -48,3 +48,19 @@ po/*~
 
 # RStudio Connect folder
 rsconnect/
+
+# targets store (BQ table metadata; rebuildable)
+_targets/
+_targets.yaml
+# renv project library (restored from renv.lock)
+renv/library/
+renv/staging/
+renv/local/
+renv/sandbox/
+# macOS
+.DS_Store
+# Quarto render outputs (rebuilt by GitHub Actions)
+qmd/_site/
+qmd/.quarto/
+qmd/*_files/
+/.quarto/
