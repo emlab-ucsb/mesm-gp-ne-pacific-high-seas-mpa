@@ -603,9 +603,10 @@ stable_bq_table_meta <- function(meta) {
 }
 
 # Every combination of `pixel_sizes` and `times`, for all activity and for
-# fishing activity only, plus every pixel size by month for `one_year` alone:
-# the cuts estimate_csv_sizes() sizes. `files` maps
-# "<activity>, <pixel size>, <time>" to the file under data/ holding that cut.
+# fishing activity only, plus every pixel size by month and as a year total
+# for `one_year` alone: the cuts estimate_csv_sizes() sizes. `files` maps
+# "<activity>, <pixel size>, <time>" (with ", <year>" for a single year) to
+# the file under data/ holding that cut.
 download_cut_grid <- function(pixel_sizes, times, one_year, files = character()) {
   grid <- expand.grid(
     pixel_size = pixel_sizes,
@@ -617,20 +618,32 @@ download_cut_grid <- function(pixel_sizes, times, one_year, files = character())
   grid$year <- NA_integer_
   single_year <- expand.grid(
     pixel_size = pixel_sizes,
-    time = "month",
+    time = c("month", "year"),
     fishing_activity_only = FALSE,
     stringsAsFactors = FALSE
   )
   single_year$year <- as.integer(one_year)
   cuts <- tibble::as_tibble(rbind(grid, single_year))
   activity <- ifelse(cuts$fishing_activity_only, "fishing activity", "all activity")
-  time_label <- c(month = "monthly", year = "yearly", all = "all years summed")[cuts$time]
+  time_label <- ifelse(
+    !is.na(cuts$year) & cuts$time == "year",
+    "year total",
+    c(month = "monthly", year = "yearly", all = "all years summed")[cuts$time]
+  )
   cuts$cut <- paste0(
     ifelse(is.na(cuts$year), "", paste0(cuts$year, " only, ")),
     ifelse(cuts$fishing_activity_only, "fishing activity only, ", ""),
     format(cuts$pixel_size, nsmall = 2), " deg, ", time_label
   )
-  key <- paste0(activity, ", ", cuts$pixel_size, ", ", cuts$time)
-  cuts$file <- ifelse(is.na(cuts$year) & key %in% names(files), unname(files[key]), NA_character_)
+  key <- paste0(
+    activity, ", ", cuts$pixel_size, ", ", cuts$time,
+    ifelse(is.na(cuts$year), "", paste0(", ", cuts$year))
+  )
+  cuts$file <- ifelse(key %in% names(files), unname(files[key]), NA_character_)
   cuts[c("cut", "pixel_size", "time", "year", "fishing_activity_only", "file")]
+}
+
+# File name of the one-year, 0.05-degree cost layer committed under data/.
+cost_layer_file_name <- function(year) {
+  paste0("ais_effort_by_pixel_0p05deg_", year, ".csv.gz")
 }

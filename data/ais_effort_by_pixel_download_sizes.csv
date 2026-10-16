@@ -20,3 +20,6 @@ cut,pixel_size,time,year,fishing_activity_only,file,n_rows,csv_mb
 "2025 only, 0.01 deg, monthly",0.01,month,2025,FALSE,,30900000,2010
 "2025 only, 0.05 deg, monthly",0.05,month,2025,FALSE,,4260000,275
 "2025 only, 0.10 deg, monthly",0.1,month,2025,FALSE,,1530000,95.6
+"2025 only, 0.01 deg, year total",0.01,year,2025,FALSE,,11600000,684
+"2025 only, 0.05 deg, year total",0.05,year,2025,FALSE,ais_effort_by_pixel_0p05deg_2025.csv.gz,971000,57.7
+"2025 only, 0.10 deg, year total",0.1,year,2025,FALSE,,320000,18.5

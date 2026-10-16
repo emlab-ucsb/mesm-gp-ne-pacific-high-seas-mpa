@@ -28,6 +28,10 @@ data_dir <- "../data"
 repo_url <- "https://github.com/emlab-ucsb/mesm-gp-ne-pacific-high-seas-mpa"
 bq_table <- "emlab-gcp.mesm_gp_ne_pacific_high_seas.ais_effort_by_pixel_v20261016"
 
+cost_layer <- readr::read_csv(
+  file.path(data_dir, "ais_effort_by_pixel_0p05deg_2025.csv.gz"),
+  show_col_types = FALSE
+)
 all_years <- readr::read_csv(
   file.path(data_dir, "ais_effort_by_pixel_0p05deg_all_years.csv.gz"),
   show_col_types = FALSE
@@ -369,15 +373,20 @@ ggplot2::ggplot(yearly_fishing, ggplot2::aes(x = year_label, y = kw_hours)) +
 ## Files you can start with
 
 These are in the repo's [data/](`r repo_url`/tree/main/data) folder, so you
-can read them straight into R with no BigQuery access. The
-[data README](`r repo_url`/blob/main/data/README.md) has every column of every
-file. `readr::read_csv()` reads the `.csv.gz` files as they are.
+can read them straight into R with no BigQuery access. **The 2025 file is
+the main cost layer**: all vessel activity at 0.05° for 2025, the most recent
+full year. The [data README](`r repo_url`/blob/main/data/README.md) has every
+column of every file, and `readr::read_csv()` reads the `.csv.gz` files as
+they are.
 
 ```{r starter-files}
 starter_files <- tibble::tribble(
   ~file, ~contents, ~data,
+  "ais_effort_by_pixel_0p05deg_2025.csv.gz",
+  "The main cost layer: all activity at 0.05°, summed over 2025, by vessel class, fishing vessel and fishing activity. The one to start with.",
+  cost_layer,
   "ais_effort_by_pixel_0p05deg_all_years.csv.gz",
-  "All activity at 0.05°, summed over the whole period, by vessel class, fishing vessel and fishing activity. The one to start with.",
+  "The same, summed over the whole period (January 2015 to August 2026).",
   all_years,
   "ais_fishing_activity_by_pixel_0p05deg_yearly.csv.gz",
   "Fishing activity at 0.05°, by year and vessel class.",
@@ -400,12 +409,12 @@ starter_files |>
   knitr::kable(align = c("l", "l", "r", "r"))
 ```
 
-For example, total fishing kW-hours per 0.05° pixel, as a raster:
+For example, fishing kW-hours per 0.05° pixel in 2025, as a raster:
 
 ```{r example-raster}
 #| echo: true
 #| eval: false
-effort <- readr::read_csv("data/ais_effort_by_pixel_0p05deg_all_years.csv.gz")
+effort <- readr::read_csv("data/ais_effort_by_pixel_0p05deg_2025.csv.gz")
 
 fishing_kw_hours <- effort |>
   dplyr::filter(fishing_activity) |>
@@ -419,11 +428,10 @@ fishing_raster <- terra::rast(fishing_kw_hours, type = "xyz", crs = "EPSG:4326")
 ## Bigger datasets
 
 If you need more detail (months, finer pixels, or a single year), it comes
-from the full table in emLab's BigQuery project. That needs special
-permissions, so **Gavin pulls these for you**: pick the option you want from
-this table (or describe what you need) and ask him. The table sizes every
-reasonable option, so you can see what you'd be getting. Every option keeps
-the vessel class and the two fishing columns.
+from the full table, which lives in emLab's BigQuery project. **Gavin is
+happy to pull any of these for you.** This table sizes every reasonable
+option, so you can see what you'd be getting. Every option keeps the vessel
+class and the two fishing columns.
 
 ```{r bigger-datasets}
 # How much gzip shrinks these files, measured on the ones in the repo
@@ -571,11 +579,11 @@ trim back to the box as drawn, filter on `lat_center`.
 
 ## Requesting more data
 
-Anything beyond the files in `data/` comes from emLab's BigQuery project
-(`emlab-gcp`), which needs special permissions. Students don't have them, so
-**ask Gavin and he'll pull the data for you.** The most useful request names
-an option from the [bigger datasets](#bigger-datasets) table, or says what
-resolution, time step, years and activity you need.
+The full table lives in emLab's BigQuery project (`emlab-gcp`), which needs
+an emLab account to query, so **Gavin is happy to pull data for you.** Just
+let him know which option from the [bigger datasets](#bigger-datasets) table
+you'd like, or describe the resolution, time step, years and activity you
+have in mind.
 
 For reference, and for anyone who does have access, this is what a request
 looks like as a query. This one is fishing activity by year at 0.1°:

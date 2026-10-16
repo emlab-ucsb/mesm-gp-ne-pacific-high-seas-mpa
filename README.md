@@ -12,9 +12,8 @@ vessel type and into fishing and non-fishing activity, January 2015 to August
 <https://emlab-ucsb.github.io/mesm-gp-ne-pacific-high-seas-mpa/>. It has the
 maps, the files you can start with, a table of the bigger datasets available
 (and how big each is), what every column means, and the caveats. The files
-in [data/](data/) are free to use. Anything bigger comes from emLab's
-BigQuery project, which needs special permissions, so ask Gavin and he'll
-pull it for you. This README is about what the repo does and how to
+in [data/](data/) are ready to use, and for anything bigger, which lives in
+emLab's BigQuery project, Gavin is happy to pull it for you. This README is about what the repo does and how to
 reproduce it.
 
 ## What it produces
@@ -29,8 +28,9 @@ reproduce it.
   - `ais_vessel_class_summary_v20261016`: vessel counts by class.
   - `ais_effort_by_pixel_test_v20261016`: one test month (July 2025), built
     before the full scan.
-- **Small data files in [data/](data/)**, including 0.05° versions of the
-  full table that you can read straight into R. The
+- **Small data files in [data/](data/)** that you can read straight into
+  R, including the students' main cost layer: all activity at 0.05° for 2025
+  (`data/ais_effort_by_pixel_0p05deg_2025.csv.gz`). The
   [data README](data/README.md) has the schema of every file.
 - **The site,** rendered from [qmd/](qmd/) into [docs/](docs/), which GitHub
   Pages serves.
@@ -65,8 +65,8 @@ read it.
 1. Open `mesm-gp-ne-pacific-high-seas-mpa.Rproj` (or the folder in Positron).
 2. Run `renv::restore()` to install the package versions in `renv.lock`.
 3. Run `bigrquery::bq_auth()` once to log in with a Google account that has
-   BigQuery access to `emlab-gcp`. That access is limited to emLab, so
-   students should ask Gavin to run the pipeline or pull data. If you have
+   BigQuery access to `emlab-gcp`, which needs an emLab account. If you
+   don't have one, Gavin is happy to run the pipeline or pull data for you. If you have
    more than one account cached, add `GARGLE_OAUTH_EMAIL=you@ucsb.edu` to a
    `.Renviron` file in the project.
 
