@@ -22,16 +22,32 @@ For what the vessel classes mean, how fishing activity is decided, and which
 vessels were left out, see the
 [site](https://emlab-ucsb.github.io/mesm-gp-ne-pacific-high-seas-mpa/). The
 site also lists the bigger datasets available from BigQuery, with how big
-each is. Those need emLab's BigQuery permissions, so ask Gavin and he'll pull
-them for you.
+each is; Gavin is happy to pull any of those for you.
 
 ## Pixel data
 
+### `ais_effort_by_pixel_0p05deg_2025.csv.gz`
+
+**The main cost layer:** all vessel activity at 0.05°, summed over 2025, the
+most recent full year. The one to start with. About 970,000 rows, 12 MB. One
+row per pixel, vessel class, fishing vessel and fishing activity.
+
+| Column | Type | Description |
+|---|---|---|
+| `year` | number | Always 2025. |
+| `lon_center` | number | Longitude of the pixel centre (degrees). |
+| `lat_center` | number | Latitude of the pixel centre (degrees). |
+| `vessel_class` | text | Vessel type, e.g. `trawlers`, `cargo`, `passenger`. `fishing` and `non_fishing` are catch-alls for vessels whose specific type GFW's model isn't sure of. |
+| `fishing_vessel` | TRUE/FALSE | `TRUE` if GFW classifies the vessel as a fishing vessel (*what the vessel is*). |
+| `fishing_activity` | TRUE/FALSE | `TRUE` for time spent fishing (*what the vessel was doing*). Only ever `TRUE` when `fishing_vessel` is. |
+| `hours` | number | Hours of vessel activity in 2025. |
+| `kw_hours` | number | Hours × engine power (kW) in 2025. |
+
 ### `ais_effort_by_pixel_0p05deg_all_years.csv.gz`
 
-All vessel activity at 0.05°, summed over the whole period. The one to start
-with. About 2.0 million rows, 24 MB. One row per pixel, vessel class, fishing
-vessel and fishing activity.
+The same as the 2025 file, summed over the whole period (January 2015 to
+August 2026) instead, without the `year` column. About 2.0 million rows,
+24 MB. One row per pixel, vessel class, fishing vessel and fishing activity.
 
 | Column | Type | Description |
 |---|---|---|

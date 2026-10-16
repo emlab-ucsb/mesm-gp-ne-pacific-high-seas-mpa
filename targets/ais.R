@@ -70,6 +70,9 @@ ais_targets <- list(
     ais_trusted_atomic_classes,
     c("trawlers", "drifting_longlines", "set_gillnets", "tuna_purse_seines", "squid_jigger")
   ),
+  # The year of the students' main cost layer: that year at 0.05 degrees,
+  # summed over the year, committed as data/ais_effort_by_pixel_0p05deg_<year>.csv.gz
+  targets::tar_target(ais_cost_layer_year, 2025L),
 
   ## Output dataset ----
   targets::tar_target(
@@ -383,10 +386,14 @@ ais_targets <- list(
     download_cut_grid(
       pixel_sizes = c(0.01, 0.05, 0.1),
       times = c("month", "year", "all"),
-      one_year = 2025,
+      one_year = ais_cost_layer_year,
       files = c(
         "all activity, 0.05, all" = "ais_effort_by_pixel_0p05deg_all_years.csv.gz",
-        "fishing activity, 0.05, year" = "ais_fishing_activity_by_pixel_0p05deg_yearly.csv.gz"
+        "fishing activity, 0.05, year" = "ais_fishing_activity_by_pixel_0p05deg_yearly.csv.gz",
+        stats::setNames(
+          cost_layer_file_name(ais_cost_layer_year),
+          paste0("all activity, 0.05, year, ", ais_cost_layer_year)
+        )
       )
     )
   ),
@@ -403,10 +410,28 @@ ais_targets <- list(
   ),
 
   ## Site data ----
-  # Two coarse cuts of the pixel table, gzipped and committed so the Quarto
+  # Three coarse cuts of the pixel table, gzipped and committed so the Quarto
   # site (qmd/) and anyone without BigQuery access can use them. 0.05 degrees
-  # matches the project's other cost layers. write_csv_file() fails if either
+  # matches the project's other cost layers. write_csv_file() fails if any
   # passes GitHub's 50 MB limit.
+
+  # The students' main cost layer: ais_cost_layer_year at 0.05 degrees,
+  # summed over the year.
+  tarchetypes::tar_file_read(
+    name = ais_effort_by_pixel_0p05deg_one_year_csv,
+    command = "sql/ais/ais_effort_by_pixel_coarse_one_year.sql",
+    read = readr::read_file(!!.x) |>
+      glue::glue(
+        ais_effort_by_pixel_table = bq_table_full_name(ais_effort_by_pixel_table),
+        pixel_size = 0.05,
+        year = ais_cost_layer_year
+      ) |>
+      download_bq_query_to_csv(
+        path = file.path("data", cost_layer_file_name(ais_cost_layer_year)),
+        billing_project = billing_project
+      ),
+    format = "file"
+  ),
   tarchetypes::tar_file_read(
     name = ais_effort_by_pixel_0p05deg_all_years_csv,
     command = "sql/ais/ais_effort_by_pixel_coarse_all_years.sql",

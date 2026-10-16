@@ -29,6 +29,7 @@ report_targets <- list(
         ais_vessel_class_summary_csv,
         ais_effort_by_pixel_summary_csv,
         ais_download_sizes_csv,
+        ais_effort_by_pixel_0p05deg_one_year_csv,
         ais_effort_by_pixel_0p05deg_all_years_csv,
         ais_fishing_activity_by_pixel_0p05deg_yearly_csv
       )
